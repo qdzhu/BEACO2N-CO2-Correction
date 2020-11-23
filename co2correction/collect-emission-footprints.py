@@ -63,11 +63,7 @@ def read_emis_from_emission_file(filename):
     emis = ds['ems_total'][:]
     return emis
 
-def read_lon_lat_from_emission_file(filename):
-    ds = nc.Dataset(os.path.join(emission_path, filename))
-    lon = ds['lon'][:]
-    lat = ds['lat'][:]
-    return lon, lat
+
 
 def collect_emis():
     em_filenames = sorted(os.listdir(emission_path))
@@ -88,12 +84,7 @@ def collect_emis():
             emis_col.append(emis)
 
 
-
-
 def collect_foot():
     fp_filenames = os.listdir(footprint_path)
     read_footprint_file(fp_filenames[0], do_plot=True)
 
-if __name__ == '__main__':
-    collect_emis()
-    collect_foot()
