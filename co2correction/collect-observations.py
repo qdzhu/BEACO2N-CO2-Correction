@@ -5,9 +5,7 @@ import pandas as pd
 import os
 import numpy as np
 from glob import glob
-from mpl_toolkits.basemap import Basemap
-from matplotlib import pyplot as plt
-import gmplot
+import geopy.distance
 from co2correction import utils
 
 workspace_path = '/Users/monicazhu/Box/CS189-Project-Shared'
@@ -65,7 +63,7 @@ def read_emis_weight_by_sp(emis_file, fp_file, mask):
 
 
 def read_ref_obs():
-    ref_obs_filenames = sorted(glob(os.path.join(ref_obs_path, '*.csv')))
+    ref_obs_filenames = sorted(glob(os.path.join(ref_obs_path, '*Picarro*.csv')))
     ref_collections = []
     for ref_filename in ref_obs_filenames:
         data = pd.read_csv(os.path.join(ref_obs_path, ref_filename))
@@ -78,6 +76,17 @@ def read_ref_obs():
         ref_collections.append(data)
     ref_co2 = pd.concat(ref_collections)
     return ref_co2
+
+def read_ref_temp():
+    ref_temp_filename = sorted(glob(os.path.join(ref_obs_path, '*temperature*.csv')))
+    data = pd.read_csv(os.path.join(ref_obs_path, ref_temp_filename[0]))
+    data['timestamp'] = pd.to_datetime(data['local_timestamp'], format='%Y-%m-%d  %H:%M:%S')
+    data.index = data['timestamp']
+    data.rename(columns={'temp': 'ref_temp'}, inplace=True)
+    data = data.drop(['local_timestamp', 'epoch', 'datetime', 'node_id', 'node_file_id', 'timestamp'], axis=1)
+    data.reset_index(inplace=True)
+    return data
+
 
 
 def collect_obs():
@@ -123,14 +132,43 @@ def merge_obs():
         merged_obs['timestamp'] = pd.to_datetime(merged_obs['timestamp'], format='%Y-%m-%d  %H:%M:%S')
         ref_obs = read_ref_obs()
         ref_obs.reset_index(inplace=True)
+        ref_temp = read_ref_temp()
+        ref_obs = ref_obs.merge(ref_temp, how='left', left_on='timestamp', right_on='timestamp')
         merged_obs = merged_obs.merge(ref_obs, how='left', left_on='timestamp', right_on='timestamp')
         merged_obs = merged_obs.dropna()
         merged_obs.to_csv(save_name)
 
 
-def make_features_from_emis_fp_files():
+def make_dist_features():
     coll_name = os.path.join(obs_merge_path, os.path.basename('merged_obs_sim_features_ref.csv'))
-    save_name = os.path.join(obs_merge_path, os.path.basename('merged_obs_full_features_ref.csv'))
+    save_name = os.path.join(obs_merge_path, os.path.basename('merged_obs_sim_features_ref_plus_dist.csv'))
+    if os.path.isfile(save_name):
+        print('Merge file already updated to include reference temperature.')
+    else:
+        data = pd.read_csv(coll_name)
+        locations = data.groupby(['lon', 'lat']).size().reset_index().rename(columns={0: 'count'})
+        lon_lim = [np.min(locations['lon']) - 0.2, np.max(locations['lon']) + 0.2]
+        lat_lim = [np.min(locations['lat']) - 0.2, np.max(locations['lat']) + 0.2]
+        lon, lat = utils.read_lon_lat_from_emission_file(data.loc[0, 'emis_files'][2:-2])
+        mesh_lon, mesh_lat = np.meshgrid(lon, lat)
+        mask = (mesh_lon >= lon_lim[0]) & (mesh_lon <= lon_lim[1]) \
+               & (mesh_lat >= lat_lim[0]) & (mesh_lat <= lat_lim[1])
+        ref_lon = data.loc[0, 'ref_lon']
+        ref_lat = data.loc[0, 'ref_lat']
+        dist_to_ref = []
+        for index, row in data.iterrows():
+            print('Working on row {}'.format(index))
+            obs_lon = row['lon']
+            obs_lat = row['lat']
+            this_dist = geopy.distance.distance((ref_lat, ref_lon), (obs_lat, obs_lon)).km
+            dist_to_ref.append(this_dist)
+        data.loc[:, 'dist_to_ref'] = dist_to_ref
+        data.to_csv(save_name)
+
+
+def make_features_from_emis_fp_files():
+    coll_name = os.path.join(obs_merge_path, os.path.basename('merged_obs_sim_features_ref_plus_dist.csv'))
+    save_name = os.path.join(obs_merge_path, os.path.basename('merged_obs_full_features_ref_plus_dist.csv'))
     data = pd.read_csv(coll_name)
     locations = data.groupby(['lon', 'lat']).size().reset_index().rename(columns={0: 'count'})
     lon_lim = [np.min(locations['lon']) - 0.2, np.max(locations['lon']) + 0.2]
@@ -149,15 +187,19 @@ def make_features_from_emis_fp_files():
         fp_file = row['fp_files'][2:-2]
         obs_lon = row['lon']
         obs_lat = row['lat']
-        dist_to_ref = np.sqrt((obs_lon - ref_lon)**2 + (obs_lat - ref_lat)**2)
-        data.loc[index, 'dist_to_ref'] = dist_to_ref
-        emis_times_fp = read_emis_weight_by_sp(emis_file, fp_file, mask)
+        try:
+            emis_times_fp = read_emis_weight_by_sp(emis_file, fp_file, mask)
+        except OSError:
+            emis_times_fp = np.empty(len(new_cols)) + np.nan
         emis_times_fp_colls.append(emis_times_fp)
-    data.loc[new_cols] = np.array(emis_times_fp_colls)
+    data.loc[:, new_cols] = np.array(emis_times_fp_colls)
+    data.to_csv(save_name)
 
 
 if __name__ == '__main__':
-    make_features_from_emis_fp_files()
     collect_obs()
     merge_obs()
+    make_dist_features()
+    make_features_from_emis_fp_files()
+
 
