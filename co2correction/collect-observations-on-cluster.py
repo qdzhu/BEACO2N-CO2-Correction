@@ -1,20 +1,51 @@
 from pathlib import Path
 print('Running' if __name__ == '__main__' else 'Importing', Path(__file__).resolve())
-
+import netCDF4 as nc
+import datetime
 import pandas as pd
 import os
 import numpy as np
-from co2correction import utils
+
 
 workspace_path = '/Users/monicazhu/Box/CS189-Project-Shared'
 obs_merge_path = os.path.join(workspace_path, 'obs_feature_merge')
+emission_path = os.path.join(workspace_path, 'Emissions')
+footprint_path = os.path.join(workspace_path, 'Footprint/compressedFoot')
+
+def read_footprint_file(filename):
+    ds = nc.Dataset(os.path.join(footprint_path, filename))
+    lon = ds['lon'][:]
+    lat = ds['lat'][:]
+    foot_lon, foot_lat = np.meshgrid(lon, lat)
+    foot = ds['foot'][:]
+    fp_times_deltas = ds['time'][:]
+    fp_times = []
+    for time_delta in fp_times_deltas:
+        this_datetime = datetime.timedelta(seconds=int(time_delta)) + datetime.datetime(1970, 1, 1)
+        fp_times.append(this_datetime)
+
+    return foot, lon, lat
+
+def read_emis_from_emission_file(filename):
+    ds = nc.Dataset(os.path.join(emission_path, filename))
+    emis = ds['ems_total'][:]
+    lon = ds['lon'][:]
+    lat = ds['lat'][:]
+    return emis, lon, lat
 
 
 def read_emis_weight_by_sp(emis_file, fp_file, mask):
-    emis, lon, lat = utils.read_emis_from_emission_file(emis_file)
-    foot, lon, lat = utils.read_footprint_file(fp_file)
+    emis, lon, lat = read_emis_from_emission_file(emis_file)
+    foot, lon, lat = read_footprint_file(fp_file)
     emisxfoot = emis[mask] * foot[mask]
     return emisxfoot
+
+
+def read_lon_lat_from_emission_file(filename):
+    ds = nc.Dataset(os.path.join(emission_path, filename))
+    lon = ds['lon'][:]
+    lat = ds['lat'][:]
+    return lon, lat
 
 
 def make_features_from_emis_fp_files():
@@ -24,7 +55,7 @@ def make_features_from_emis_fp_files():
     locations = data.groupby(['lon', 'lat']).size().reset_index().rename(columns={0: 'count'})
     lon_lim = [np.min(locations['lon']) - 0.2, np.max(locations['lon']) + 0.2]
     lat_lim = [np.min(locations['lat']) - 0.2, np.max(locations['lat']) + 0.2]
-    lon, lat = utils.read_lon_lat_from_emission_file(data.loc[0, 'emis_files'][2:-2])
+    lon, lat = read_lon_lat_from_emission_file(data.loc[0, 'emis_files'][2:-2])
     mesh_lon, mesh_lat = np.meshgrid(lon, lat)
     mask = (mesh_lon >= lon_lim[0]) & (mesh_lon <= lon_lim[1]) \
            & (mesh_lat >= lat_lim[0]) & (mesh_lat <= lat_lim[1])
