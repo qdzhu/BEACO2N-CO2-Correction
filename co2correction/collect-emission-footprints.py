@@ -1,3 +1,6 @@
+from pathlib import Path
+print('Running' if __name__ == '__main__' else 'Importing', Path(__file__).resolve())
+
 from mpl_toolkits.basemap import Basemap
 from matplotlib import pyplot as plt
 import datetime
@@ -5,7 +8,7 @@ from glob import glob
 import numpy as np
 import netCDF4 as nc
 import os
-
+from co2correction import utils
 import os.path
 
 workspace_path = '/Users/monicazhu/Box/CS189-Project-Shared'
@@ -49,14 +52,6 @@ def read_footprint_file(filename, do_plot=False):
 
     return obs_datetime, obs_lon, obs_lat, obs_alt, lon, lat, foot
 
-def read_info_from_emission_filename(filename):
-    filename_parts = filename.split("_")[1].split(".")[0]
-    emis_year = int(filename_parts.split("x")[0])
-    emis_month = int(filename_parts.split("x")[1])
-    emis_day = int(filename_parts.split("x")[2])
-    emis_hour = int(filename_parts.split("x")[3])
-    emis_datetime = datetime.datetime(emis_year, emis_month, emis_day, emis_hour)
-    return emis_datetime
 
 def read_emis_from_emission_file(filename):
     ds = nc.Dataset(os.path.join(emission_path, filename))
@@ -71,13 +66,13 @@ def collect_emis():
     emis_datetimes = []
     emis_col = []
     for em_filename in em_filenames:
-        this_emis_datetime = read_info_from_emission_filename(em_filename)
+        this_emis_datetime = utils.read_info_from_emission_filename(em_filename)
         if this_emis_datetime.year == 2020 or this_emis_datetime.year == 2017:
             print("Only 2018 and 2019 data are selected.\n")
         else:
             print("Reading" + em_filename + ".\n")
             if read_lon_lat:
-                lon, lat = read_lon_lat_from_emission_file(em_filename)
+                lon, lat = utils.read_lon_lat_from_emission_file(em_filename)
                 read_lon_lat = False
             emis = read_emis_from_emission_file(em_filename)
             emis_datetimes.append(this_emis_datetime)
@@ -88,3 +83,6 @@ def collect_foot():
     fp_filenames = os.listdir(footprint_path)
     read_footprint_file(fp_filenames[0], do_plot=True)
 
+if __name__ == '__main__':
+    collect_foot()
+    collect_emis()

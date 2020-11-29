@@ -27,6 +27,7 @@ def read_footprint_file(filename):
 
     return foot, lon, lat
 
+
 def read_emis_from_emission_file(filename):
     ds = nc.Dataset(os.path.join(emission_path, filename))
     emis = ds['ems_total'][:]
@@ -34,8 +35,19 @@ def read_emis_from_emission_file(filename):
     lat = ds['lat'][:]
     return emis, lon, lat
 
+
 def read_lon_lat_from_emission_file(filename):
     ds = nc.Dataset(os.path.join(emission_path, filename))
     lon = ds['lon'][:]
     lat = ds['lat'][:]
     return lon, lat
+
+
+def read_info_from_emission_filename(filename):
+    filename_parts = filename.split("_")[1].split(".")[0]
+    emis_year = int(filename_parts.split("x")[0])
+    emis_month = int(filename_parts.split("x")[1])
+    emis_day = int(filename_parts.split("x")[2])
+    emis_hour = int(filename_parts.split("x")[3])
+    emis_datetime = datetime.datetime(emis_year, emis_month, emis_day, emis_hour)
+    return emis_datetime
