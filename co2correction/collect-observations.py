@@ -8,6 +8,7 @@ from glob import glob
 import geopy.distance
 from co2correction import utils
 import pytz
+import re
 
 workspace_path = '/Users/monicazhu/Box/CS189-Project-Shared'
 obs_path = os.path.join(workspace_path, 'node_measurements')
@@ -239,13 +240,82 @@ def trim_redundant_features():
         data.to_csv(coll_save_name)
 
 
+def calculate_distance_to_each_sensor():
+    coll_name = os.path.join(obs_merge_path, os.path.basename('merged_obs_sim_features_ref_plus_dist.csv'))
+    supp_name = os.path.join(obs_merge_path, os.path.basename('ef_feature_info.csv'))
+    coll_save_name = os.path.join(obs_merge_path, os.path.basename('obs_mask_distance.csv'))
+    supp_data = pd.read_csv(supp_name)
+    mask_lons = supp_data.loc[:, 'mask_lon']
+    mask_lats = supp_data.loc[:, 'mask_lat']
+
+    data = pd.read_csv(coll_name)
+    locations = data.groupby(['lon', 'lat']).size().reset_index().rename(columns={0: 'count'})
+
+    new_cols = supp_data.loc[:, 'column_name'].values
+    dis_thres = np.arange(100)
+    new_cols = ['ef_dist_{:02}'.format(i + 1) for i in dis_thres]
+    new_feature_distance = []
+    for index, row in locations.iterrows():
+        print('Working on Row {}'.format(index))
+        obs_lon = row['lon']
+        obs_lat = row['lat']
+        distance = []
+        for lon, lat in zip(mask_lons, mask_lats):
+            distance.append(geopy.distance.distance((lat, lon), (obs_lat, obs_lon)).km)
+        new_feature_distance.append(distance)
+        fea_select = []
+        for thres in dis_thres:
+            column_indx = [i for i in range(len(distance)) if (distance[i] > thres) & (distance[i] < thres + 1)]
+            this_em_diff_names = supp_data.loc[column_indx, 'column_name'].values
+            fea_select.append(this_em_diff_names)
+        locations.loc[index, new_cols] = fea_select
+    locations.to_csv(coll_save_name)
+
+
+def distill_features():
+    coll_name = os.path.join(obs_merge_path, os.path.basename('merged_obs_full_features_ref_plus_dist.csv'))
+    supp_name = os.path.join(obs_merge_path, os.path.basename('obs_mask_distance.csv'))
+    coll_save_name = os.path.join(obs_merge_path, os.path.basename('merged_obs_full_features_distilled.csv'))
+    supp_data = pd.read_csv(supp_name)
+    supp_data = supp_data.set_index(['lon', 'lat'])
+
+    data = pd.read_csv(coll_name)
+    dis_thres = np.arange(100)
+    new_cols = ['ef_dist_{:02}'.format(i + 1) for i in dis_thres]
+    new_feature_coll = []
+    for index, row in data.iterrows():
+        print('Working on Row {}'.format(index))
+        obs_lon = row['lon']
+        obs_lat = row['lat']
+        em_df_agg = []
+        for new_col in new_cols:
+            this_em_diff_string = supp_data.loc[(obs_lon, obs_lat), new_col]
+            this_em_diff_names = re.findall('ef_\d*', this_em_diff_string)
+            this_em_diff = row.loc[this_em_diff_names].sum()
+            em_df_agg.append(this_em_diff)
+        new_feature_coll.append(np.array(em_df_agg))
+    data.loc[:, new_cols] = np.array(new_feature_coll)
+    data.to_csv(coll_save_name)
+
+def remove_ef_features():
+    coll_name = os.path.join(obs_merge_path, os.path.basename('merged_obs_full_features_distilled.csv'))
+    data = pd.read_csv(coll_name)
+    columns = data.columns
+    drop_column = [column for column in columns if re.match('ef_\d+', column)]
+    data = data.drop(drop_column, axis=1)
+    data.to_csv(coll_name)
+
 
 if __name__ == '__main__':
+    remove_ef_features()
+    distill_features()
+    calculate_distance_to_each_sensor()
     collect_obs()
     merge_obs()
     make_dist_features()
     make_features_from_emis_fp_files()
     make_supp_feature_info()
     trim_redundant_features()
+    distill_features()
 
 
